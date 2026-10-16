@@ -1,0 +1,672 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FoodVibe - 校園美食命運轉盤</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { font-family: "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif; }
+  .chip { display:block; padding:.4rem .9rem; border-radius:9999px; border:2px solid #fed7aa; background:#fff;
+          color:#9a3412; font-weight:600; font-size:.9rem; transition:all .15s ease; cursor:pointer; }
+  .chip:hover { border-color:#fb923c; transform:translateY(-1px); }
+  input:checked + .chip.include { background:#f97316; border-color:#f97316; color:#fff; box-shadow:0 4px 10px rgba(249,115,22,.3); }
+  input:checked + .chip.exclude { background:#f43f5e; border-color:#f43f5e; color:#fff; text-decoration:line-through; box-shadow:0 4px 10px rgba(244,63,94,.3); }
+  input:checked + .chip.veg { background:#16a34a; border-color:#16a34a; color:#fff; box-shadow:0 4px 10px rgba(22,163,74,.3); }
+  input:focus-visible + .chip { outline:3px solid #fdba74; outline-offset:2px; }
+  input:disabled + .chip { opacity:.55; cursor:not-allowed; }
+  @keyframes pop { 0%{transform:scale(.6);opacity:0} 60%{transform:scale(1.06);opacity:1} 100%{transform:scale(1)} }
+  .pop { animation:pop .6s cubic-bezier(.2,.9,.3,1.2) both; }
+  @keyframes hop { 0%,100%{transform:translateY(0)} 40%{transform:translateY(-16px)} 70%{transform:translateY(-4px)} }
+  .hop { display:inline-block; animation:hop 1s ease-in-out 3; }
+  @keyframes glow { 0%,100%{box-shadow:0 10px 25px rgba(244,63,94,.35),0 0 0 0 rgba(251,146,60,.5)} 50%{box-shadow:0 10px 25px rgba(244,63,94,.35),0 0 0 14px rgba(251,146,60,0)} }
+  .glow { animation:glow 1.8s ease-out infinite; }
+  .spin-btn:disabled { animation:none; filter:grayscale(.3); cursor:not-allowed; opacity:.85; }
+  @media (prefers-reduced-motion: reduce){ .hop,.glow,.pop{animation:none} }
+</style>
+</head>
+<body class="bg-gradient-to-b from-amber-50 via-orange-50 to-rose-50 min-h-screen text-stone-800">
+<canvas id="confetti" class="fixed inset-0 pointer-events-none z-40" aria-hidden="true"></canvas>
+
+<!-- Header -->
+<header class="bg-gradient-to-r from-orange-500 via-rose-500 to-amber-400 text-white shadow-lg">
+  <div class="max-w-4xl mx-auto px-4 py-6 flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight">🍜 FoodVibe</h1>
+      <p class="mt-1 text-sm sm:text-base text-white/90">校園美食命運轉盤｜今天吃什麼，交給命運！</p>
+    </div>
+    <button id="muteBtn" class="shrink-0 rounded-full bg-white/20 hover:bg-white/30 px-4 py-2 text-sm font-semibold backdrop-blur" aria-pressed="false" title="開關音效">🔊 音效</button>
+  </div>
+</header>
+
+<main class="max-w-4xl mx-auto px-4 py-6 space-y-6">
+
+  <!-- Settings -->
+  <section class="bg-white rounded-3xl shadow-md p-5 sm:p-6 border border-orange-100">
+    <h2 class="text-lg font-bold text-orange-600 mb-4">📍 基本設定</h2>
+    <div class="max-w-md">
+      <div>
+        <label for="school" class="block text-sm font-semibold text-stone-600 mb-1">學校</label>
+        <select id="school" class="w-full rounded-xl border-2 border-orange-200 bg-white px-3 py-2.5 font-medium focus:outline-none focus:border-orange-400">
+          <option>國立臺灣海洋大學</option>
+          <option>國立臺灣大學</option>
+          <option>國立成功大學</option>
+          <option>國立清華大學</option>
+          <option value="__custom">自行輸入…</option>
+        </select>
+        <input id="customSchool" type="text" maxlength="40" placeholder="輸入學校或地點，例如：國立政治大學"
+               class="hidden mt-2 w-full rounded-xl border-2 border-orange-200 px-3 py-2.5 focus:outline-none focus:border-orange-400">
+      </div>
+    </div>
+  </section>
+
+  <!-- Filters -->
+  <section class="bg-white rounded-3xl shadow-md p-5 sm:p-6 border border-orange-100 space-y-5">
+    <h2 class="text-lg font-bold text-orange-600">🎛️ 條件篩選</h2>
+    <div>
+      <p class="text-sm font-semibold text-stone-600 mb-2">不想吃的口味 <span class="font-normal text-stone-400">（勾選＝排除）</span></p>
+      <div id="cuisineChips" class="flex flex-wrap gap-2"></div>
+    </div>
+    <div>
+      <p class="text-sm font-semibold text-stone-600 mb-2">不吃的東西 / 避雷 <span class="font-normal text-stone-400">（勾選＝排除；「只吃素食」＝僅出現素食料理）</span></p>
+      <div id="avoidChips" class="flex flex-wrap gap-2"></div>
+    </div>
+    <div>
+      <p class="text-sm font-semibold text-stone-600 mb-2">價格範圍 <span class="font-normal text-stone-400">（可複選，單位：元）</span></p>
+      <div id="priceChips" class="flex flex-wrap gap-2"></div>
+    </div>
+  </section>
+
+  <!-- Wheel -->
+  <section class="bg-white rounded-3xl shadow-md p-5 sm:p-6 border border-orange-100">
+    <h2 class="text-lg font-bold text-orange-600 mb-1">🎡 命運大轉盤</h2>
+    <p id="poolInfo" class="text-sm text-stone-500 mb-4" aria-live="polite"></p>
+
+    <div id="emptyNotice" class="hidden mb-4 rounded-2xl bg-amber-50 border-2 border-amber-200 text-amber-800 px-4 py-3 text-sm font-semibold">
+      😵 條件太嚴格啦！請稍微放寬條件再試試
+    </div>
+
+    <div class="flex flex-col items-center">
+      <div id="wheelBox" class="relative w-full max-w-[440px] aspect-square">
+        <canvas id="wheel" class="block w-full h-full"></canvas>
+        <svg id="pointer" class="absolute left-1/2 -top-1 z-10 drop-shadow-lg" style="width:34px;height:42px;transform:translateX(-50%);transform-origin:50% 25%" viewBox="0 0 40 50" aria-hidden="true">
+          <path d="M20 49 L3.5 17 A18 18 0 1 1 36.5 17 Z" fill="#be123c" stroke="#fff" stroke-width="3" stroke-linejoin="round"/>
+          <circle cx="20" cy="17" r="6" fill="#fff"/>
+        </svg>
+      </div>
+
+      <div class="mt-6 flex flex-col sm:flex-row items-center gap-3 w-full justify-center">
+        <button id="spinBtn" class="spin-btn glow w-full sm:w-auto rounded-full bg-gradient-to-r from-rose-500 via-orange-500 to-amber-400 text-white text-xl sm:text-2xl font-extrabold px-10 py-4 hover:scale-105 active:scale-95 transition-transform">
+          🎯 開始轉動命運！
+        </button>
+        <button id="shuffleBtn" class="hidden rounded-full border-2 border-orange-300 text-orange-600 font-semibold px-5 py-3 hover:bg-orange-50 transition">🔀 換一批料理</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Result -->
+  <section id="result" class="hidden scroll-mt-4 bg-white rounded-3xl shadow-xl p-5 sm:p-6 border-2 border-orange-300" aria-live="polite">
+    <div id="resultCard" class="text-center">
+      <p class="text-stone-500 font-semibold">🎉 恭喜！今天命定美食是：</p>
+      <div id="resultEmoji" class="hop text-7xl my-3"></div>
+      <h3 id="resultName" class="text-4xl sm:text-5xl font-extrabold bg-gradient-to-r from-rose-500 to-orange-500 bg-clip-text text-transparent"></h3>
+      <div id="resultTags" class="mt-4 flex flex-wrap justify-center gap-2"></div>
+
+      <div class="mt-6 flex flex-col sm:flex-row gap-3 justify-center">
+        <button id="againBtn" class="rounded-full border-2 border-orange-400 text-orange-600 font-bold px-7 py-3 hover:bg-orange-50 transition">🔄 再轉一次</button>
+        <button id="acceptBtn" class="rounded-full bg-gradient-to-r from-orange-500 to-rose-500 text-white font-bold px-7 py-3 shadow-lg hover:scale-105 active:scale-95 transition-transform">✅ 接受命運</button>
+      </div>
+      <p id="acceptNote" class="hidden mt-4 rounded-2xl bg-emerald-50 text-emerald-700 font-bold px-4 py-3"></p>
+    </div>
+
+    <div id="mapWrap" class="mt-6 scroll-mt-4">
+      <div class="flex items-center justify-between flex-wrap gap-2 mb-2">
+        <h4 class="font-bold text-orange-600">🗺️ 附近店家搜尋</h4>
+        <span id="mapHint" class="text-xs text-stone-500"></span>
+      </div>
+      <div class="overflow-hidden rounded-2xl border-2 border-orange-100 bg-orange-50">
+        <iframe id="mapFrame" title="Google Maps 搜尋結果" class="w-full h-80 sm:h-96 block" loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe>
+      </div>
+      <a id="mapLink" target="_blank" rel="noopener noreferrer"
+         class="mt-3 flex items-center justify-center gap-2 rounded-full bg-blue-600 hover:bg-blue-700 text-white font-bold px-6 py-3 transition">
+        📌 開啟 Google Maps 查看詳細店家與評價
+      </a>
+    </div>
+  </section>
+</main>
+
+<footer class="text-center text-xs text-stone-400 pb-8 px-4">FoodVibe · 料理資料為常見示意，實際營業資訊請以 Google Maps 為準</footer>
+
+<!-- Modal -->
+<div id="modal" class="hidden fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+  <div class="pop bg-white rounded-3xl p-7 max-w-sm w-full text-center shadow-2xl">
+    <div class="text-6xl mb-2">😵</div>
+    <h3 id="modalTitle" class="text-xl font-extrabold text-rose-600">條件太嚴格啦！</h3>
+    <p class="mt-2 text-stone-600">請稍微放寬條件再試試</p>
+    <button id="modalClose" class="mt-5 rounded-full bg-orange-500 hover:bg-orange-600 text-white font-bold px-8 py-2.5">好，我再調整</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+  const $ = id => document.getElementById(id);
+  const TAU = Math.PI * 2;
+  const MAX_SEGMENTS = 12;
+  const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const mod = (a, n) => ((a % n) + n) % n;
+  const rand = (a, b) => a + Math.random() * (b - a);
+
+  /* ---------- 料理資料庫 ---------- */
+  // n 名稱, e emoji, c 口味, p 價格等級(1平價 2中等 3大餐), t 標籤, v 素食
+  const DISHES = [
+    // 台式
+    {n:'牛肉麵',e:'🍜',c:'台式',p:[1,2],t:['牛肉']},
+    {n:'滷肉飯',e:'🍚',c:'台式',p:[1],t:['豬肉']},
+    {n:'雞肉飯',e:'🍗',c:'台式',p:[1],t:['雞肉']},
+    {n:'排骨便當',e:'🍱',c:'台式',p:[1],t:['豬肉']},
+    {n:'水餃',e:'🥟',c:'台式',p:[1],t:['豬肉']},
+    {n:'蚵仔煎',e:'🍳',c:'台式',p:[1],t:['海鮮']},
+    {n:'麻辣燙',e:'🌶️',c:'台式',p:[1,2],t:['辣']},
+    {n:'麻辣火鍋',e:'🍲',c:'台式',p:[2,3],t:['辣','牛肉','豬肉','海鮮']},
+    {n:'素食自助餐',e:'🥗',c:'台式',p:[1],t:[],v:true},
+    {n:'滷味',e:'🍢',c:'台式',p:[1],t:['豬肉','內臟','辣']},
+    {n:'蛋炒飯',e:'🍳',c:'台式',p:[1],t:[],v:true},
+    {n:'鹽酥雞',e:'🍗',c:'台式',p:[1],t:['雞肉','炸物']},
+    {n:'台式熱炒',e:'🔥',c:'台式',p:[2],t:['豬肉','海鮮']},
+    {n:'刈包',e:'🥙',c:'台式',p:[1],t:['豬肉','香菜']},
+    {n:'臭豆腐',e:'🧆',c:'台式',p:[1],t:['炸物'],v:true},
+    // 日式
+    {n:'日式拉麵',e:'🍜',c:'日式',p:[1,2],t:['豬肉']},
+    {n:'壽司',e:'🍣',c:'日式',p:[2,3],t:['海鮮']},
+    {n:'牛丼',e:'🍚',c:'日式',p:[1,2],t:['牛肉']},
+    {n:'咖哩豬排飯',e:'🍛',c:'日式',p:[1,2],t:['豬肉','炸物']},
+    {n:'烏龍麵',e:'🍲',c:'日式',p:[1],t:[]},
+    {n:'炸豬排定食',e:'🍤',c:'日式',p:[2],t:['豬肉','炸物']},
+    {n:'日式燒肉',e:'🥩',c:'日式',p:[3],t:['牛肉','豬肉']},
+    {n:'章魚燒',e:'🐙',c:'日式',p:[1],t:['海鮮','炸物']},
+    {n:'鰻魚飯',e:'🍱',c:'日式',p:[2,3],t:['海鮮']},
+    {n:'生魚片丼飯',e:'🍣',c:'日式',p:[2,3],t:['海鮮']},
+    {n:'日式涮涮鍋',e:'🍲',c:'日式',p:[2,3],t:['牛肉','豬肉']},
+    // 韓式
+    {n:'韓式炸雞',e:'🍗',c:'韓式',p:[2],t:['雞肉','辣','炸物']},
+    {n:'部隊鍋',e:'🍲',c:'韓式',p:[2],t:['豬肉','辣']},
+    {n:'石鍋拌飯',e:'🍚',c:'韓式',p:[1,2],t:['牛肉']},
+    {n:'韓式烤肉',e:'🥓',c:'韓式',p:[2,3],t:['豬肉','牛肉']},
+    {n:'泡菜鍋',e:'🍲',c:'韓式',p:[1,2],t:['豬肉','辣']},
+    {n:'辣炒年糕',e:'🌶️',c:'韓式',p:[1],t:['辣']},
+    {n:'海苔飯捲',e:'🍙',c:'韓式',p:[1],t:[]},
+    {n:'韓式冷麵',e:'🍜',c:'韓式',p:[1,2],t:['牛肉']},
+    {n:'人蔘雞湯',e:'🥣',c:'韓式',p:[2],t:['雞肉']},
+    // 美式
+    {n:'牛肉漢堡',e:'🍔',c:'美式',p:[1,2],t:['牛肉']},
+    {n:'炸雞套餐',e:'🍟',c:'美式',p:[1],t:['雞肉','炸物']},
+    {n:'經典牛排',e:'🥩',c:'美式',p:[2,3],t:['牛肉']},
+    {n:'潛艇堡',e:'🥪',c:'美式',p:[1],t:['豬肉']},
+    {n:'美式早午餐',e:'🥞',c:'美式',p:[2],t:['豬肉','乳製品']},
+    {n:'墨西哥捲餅',e:'🌯',c:'美式',p:[1,2],t:['雞肉','辣']},
+    {n:'BBQ 烤肋排',e:'🍖',c:'美式',p:[3],t:['豬肉']},
+    {n:'蔬食沙拉',e:'🥗',c:'美式',p:[1,2],t:[],v:true},
+    // 東南亞
+    {n:'泰式打拋豬飯',e:'🍛',c:'東南亞',p:[1],t:['豬肉','辣']},
+    {n:'越南牛肉河粉',e:'🍜',c:'東南亞',p:[1],t:['牛肉','香菜']},
+    {n:'泰式綠咖哩',e:'🍛',c:'東南亞',p:[1,2],t:['雞肉','辣']},
+    {n:'越式法國麵包',e:'🥖',c:'東南亞',p:[1],t:['豬肉','香菜']},
+    {n:'冬蔭功湯',e:'🍲',c:'東南亞',p:[2],t:['海鮮','辣','香菜']},
+    {n:'海南雞飯',e:'🍚',c:'東南亞',p:[1],t:['雞肉']},
+    {n:'印尼炒飯',e:'🍳',c:'東南亞',p:[1],t:['海鮮']},
+    {n:'馬來叻沙',e:'🍜',c:'東南亞',p:[1,2],t:['海鮮','辣']},
+    {n:'泰式素咖哩',e:'🥘',c:'東南亞',p:[1,2],t:['辣'],v:true},
+    // 義式
+    {n:'肉醬義大利麵',e:'🍝',c:'義式',p:[1,2],t:['牛肉','豬肉']},
+    {n:'奶油培根義大利麵',e:'🍝',c:'義式',p:[1,2],t:['豬肉','乳製品']},
+    {n:'青醬海鮮燉飯',e:'🥘',c:'義式',p:[2,3],t:['海鮮']},
+    {n:'瑪格麗特披薩',e:'🍕',c:'義式',p:[1,2],t:['乳製品'],v:true},
+    {n:'焗烤千層麵',e:'🧀',c:'義式',p:[2],t:['牛肉','乳製品']},
+    {n:'野菇奶油燉飯',e:'🍄',c:'義式',p:[2],t:['乳製品'],v:true},
+    {n:'窯烤臘腸披薩',e:'🍕',c:'義式',p:[2,3],t:['豬肉','乳製品']},
+    {n:'蒜香辣椒義大利麵',e:'🌶️',c:'義式',p:[1,2],t:['辣'],v:true},
+  ];
+
+  // 擴充料理
+  DISHES.push(
+    // 台式
+    {n:'陽春麵',e:'🍜',c:'台式',p:[1],t:['豬肉']},
+    {n:'乾拌麵',e:'🍜',c:'台式',p:[1],t:['豬肉']},
+    {n:'米粉湯',e:'🍲',c:'台式',p:[1],t:['豬肉','內臟']},
+    {n:'控肉飯',e:'🍚',c:'台式',p:[1],t:['豬肉']},
+    {n:'蔥油餅',e:'🥞',c:'台式',p:[1],t:[],v:true},
+    {n:'筒仔米糕',e:'🍚',c:'台式',p:[1],t:['豬肉']},
+    {n:'麻油雞麵線',e:'🍲',c:'台式',p:[1,2],t:['雞肉']},
+    {n:'豬腳飯',e:'🍖',c:'台式',p:[1,2],t:['豬肉']},
+    {n:'港式燒臘飯',e:'🍖',c:'台式',p:[1,2],t:['豬肉']},
+    {n:'蚵仔麵線',e:'🍜',c:'台式',p:[1],t:['海鮮','內臟']},
+    {n:'涼麵',e:'🍜',c:'台式',p:[1],t:[],v:true},
+    {n:'鍋燒意麵',e:'🍲',c:'台式',p:[1],t:['海鮮','豬肉']},
+    {n:'個人小火鍋',e:'🍲',c:'台式',p:[1,2],t:['牛肉','豬肉','海鮮']},
+    {n:'雞排',e:'🍗',c:'台式',p:[1],t:['雞肉','炸物']},
+    {n:'傳統飯糰',e:'🍙',c:'台式',p:[1],t:['豬肉']},
+    {n:'燒餅油條',e:'🥖',c:'台式',p:[1],t:['炸物'],v:true},
+    {n:'牛肉燴飯',e:'🍛',c:'台式',p:[1,2],t:['牛肉']},
+    {n:'羊肉爐',e:'🍲',c:'台式',p:[2,3],t:[]},
+    {n:'麻婆豆腐飯',e:'🌶️',c:'台式',p:[1],t:['辣','豬肉']},
+    {n:'酸辣湯餃',e:'🥟',c:'台式',p:[1],t:['豬肉','辣']},
+    {n:'薑母鴨',e:'🍲',c:'台式',p:[2,3],t:[]},
+    // 日式
+    {n:'親子丼',e:'🍳',c:'日式',p:[1,2],t:['雞肉']},
+    {n:'天婦羅丼',e:'🍤',c:'日式',p:[2],t:['海鮮','炸物']},
+    {n:'壽喜燒',e:'🍲',c:'日式',p:[2,3],t:['牛肉']},
+    {n:'日式唐揚雞定食',e:'🍗',c:'日式',p:[1,2],t:['雞肉','炸物']},
+    {n:'蕎麥麵',e:'🍜',c:'日式',p:[1,2],t:[]},
+    {n:'日式沾麵',e:'🍜',c:'日式',p:[1,2],t:['豬肉']},
+    {n:'御好燒',e:'🥞',c:'日式',p:[1,2],t:['豬肉','海鮮']},
+    {n:'鮭魚茶泡飯',e:'🍚',c:'日式',p:[1,2],t:['海鮮']},
+    {n:'味噌拉麵',e:'🍜',c:'日式',p:[1,2],t:['豬肉']},
+    {n:'鐵板燒',e:'🥩',c:'日式',p:[3],t:['牛肉','海鮮']},
+    {n:'迴轉壽司',e:'🍣',c:'日式',p:[2],t:['海鮮']},
+    {n:'日式炸蝦定食',e:'🍤',c:'日式',p:[2],t:['海鮮','炸物']},
+    {n:'蛋包飯',e:'🍳',c:'日式',p:[1,2],t:[]},
+    {n:'關東煮',e:'🍢',c:'日式',p:[1],t:['海鮮']},
+    // 韓式
+    {n:'韓式炸醬麵',e:'🍜',c:'韓式',p:[1,2],t:['豬肉']},
+    {n:'韓式嫩豆腐鍋',e:'🍲',c:'韓式',p:[1,2],t:['海鮮','辣']},
+    {n:'馬鈴薯豬骨湯',e:'🍲',c:'韓式',p:[2],t:['豬肉','辣']},
+    {n:'韓式海鮮煎餅',e:'🥞',c:'韓式',p:[1,2],t:['海鮮']},
+    {n:'辣炒豬肉飯',e:'🍚',c:'韓式',p:[1],t:['豬肉','辣']},
+    {n:'起司辣雞',e:'🧀',c:'韓式',p:[2],t:['雞肉','辣','乳製品']},
+    {n:'韓式雜菜冬粉',e:'🍜',c:'韓式',p:[1],t:['牛肉']},
+    {n:'韓式辣拉麵',e:'🍜',c:'韓式',p:[1],t:['辣']},
+    {n:'蔬食韓式拌飯',e:'🍚',c:'韓式',p:[1,2],t:[],v:true},
+    // 美式
+    {n:'熱狗堡',e:'🌭',c:'美式',p:[1],t:['豬肉']},
+    {n:'炸魚薯條',e:'🐟',c:'美式',p:[1,2],t:['海鮮','炸物']},
+    {n:'酥炸雞腿堡',e:'🍔',c:'美式',p:[1,2],t:['雞肉','炸物']},
+    {n:'香料烤雞腿排',e:'🍗',c:'美式',p:[2],t:['雞肉']},
+    {n:'美式鬆餅',e:'🥞',c:'美式',p:[1,2],t:['乳製品'],v:true},
+    {n:'起司玉米片',e:'🧀',c:'美式',p:[1,2],t:['乳製品','辣'],v:true},
+    {n:'牛肉塔可',e:'🌮',c:'美式',p:[1,2],t:['牛肉','辣']},
+    {n:'烤豬肉三明治',e:'🥪',c:'美式',p:[1,2],t:['豬肉']},
+    {n:'美式炒蛋早餐',e:'🍳',c:'美式',p:[1,2],t:['豬肉','乳製品']},
+    {n:'蘑菇濃湯麵包',e:'🥣',c:'美式',p:[1,2],t:['乳製品'],v:true},
+    {n:'蛤蜊巧達濃湯',e:'🥣',c:'美式',p:[1,2],t:['海鮮','乳製品']},
+    {n:'水牛城辣雞翅',e:'🍗',c:'美式',p:[1,2],t:['雞肉','辣','炸物']},
+    {n:'蔬食漢堡',e:'🍔',c:'美式',p:[1,2],t:[],v:true},
+    // 東南亞
+    {n:'泰式炒河粉',e:'🍜',c:'東南亞',p:[1,2],t:['海鮮']},
+    {n:'泰式檸檬魚',e:'🐟',c:'東南亞',p:[2],t:['海鮮','辣','香菜']},
+    {n:'越南春捲',e:'🥢',c:'東南亞',p:[1],t:['海鮮','豬肉','香菜']},
+    {n:'越式炒牛肉河粉',e:'🍜',c:'東南亞',p:[1],t:['牛肉']},
+    {n:'泰式椰漿雞湯',e:'🥣',c:'東南亞',p:[2],t:['雞肉']},
+    {n:'沙嗲串燒',e:'🍢',c:'東南亞',p:[1,2],t:['豬肉']},
+    {n:'新加坡肉骨茶',e:'🍲',c:'東南亞',p:[2],t:['豬肉']},
+    {n:'椰漿飯',e:'🍚',c:'東南亞',p:[1,2],t:['雞肉','辣']},
+    {n:'泰式炒飯',e:'🍳',c:'東南亞',p:[1],t:['海鮮']},
+    {n:'泰式涼拌牛肉',e:'🥗',c:'東南亞',p:[2],t:['牛肉','辣','香菜']},
+    {n:'越式烤肉米線',e:'🍜',c:'東南亞',p:[1,2],t:['豬肉','香菜']},
+    {n:'泰式紅咖哩牛肉',e:'🍛',c:'東南亞',p:[1,2],t:['牛肉','辣']},
+    {n:'蔬食越南河粉',e:'🍜',c:'東南亞',p:[1],t:[],v:true},
+    // 義式
+    {n:'海鮮義大利麵',e:'🍝',c:'義式',p:[2,3],t:['海鮮']},
+    {n:'白酒蛤蜊義大利麵',e:'🍝',c:'義式',p:[2],t:['海鮮']},
+    {n:'夏威夷披薩',e:'🍕',c:'義式',p:[1,2],t:['豬肉','乳製品']},
+    {n:'四起司披薩',e:'🍕',c:'義式',p:[2],t:['乳製品'],v:true},
+    {n:'凱薩雞肉沙拉',e:'🥗',c:'義式',p:[1,2],t:['雞肉','乳製品']},
+    {n:'青醬義大利麵',e:'🍝',c:'義式',p:[1,2],t:['乳製品'],v:true},
+    {n:'紅醬雞肉燉飯',e:'🥘',c:'義式',p:[2],t:['雞肉']},
+    {n:'義式肉丸麵',e:'🍝',c:'義式',p:[1,2],t:['牛肉','豬肉']},
+    {n:'義式炸飯球',e:'🍙',c:'義式',p:[1,2],t:['乳製品','炸物']},
+    {n:'牛排義大利麵套餐',e:'🥩',c:'義式',p:[3],t:['牛肉']},
+    {n:'義式海鮮湯',e:'🍲',c:'義式',p:[2,3],t:['海鮮']},
+    {n:'白醬菠菜焗烤',e:'🥬',c:'義式',p:[1,2],t:['乳製品'],v:true}
+  );
+
+  const CUISINES =['台式','日式','韓式','美式','東南亞','義式'];
+  const AVOIDS = [['牛肉','🐄'],['豬肉','🐖'],['海鮮','🦐'],['辣','🌶️'],['內臟','🫀'],['乳製品','🥛'],['炸物','🍤']];
+  const PRICES = [[1,'平價','1~200'],[2,'中等','200~400'],[3,'大餐','400+']];
+  const PRICE_LABEL = {1:'平價',2:'中等',3:'大餐'};
+  // 預設學校的校園座標（用來固定地圖中心）
+  const SCHOOL_POS = {
+    '國立臺灣海洋大學': [25.1503, 121.7727],
+    '國立臺灣大學': [25.0173, 121.5397],
+    '國立成功大學': [22.9990, 120.2170],
+    '國立清華大學': [24.7961, 120.9966]
+  };
+  const PALETTE = [
+    ['#e11d48','#fff'],['#ea580c','#fff'],['#fbbf24','#7c2d12'],['#fda4af','#881337'],
+    ['#c2410c','#fff'],['#fde68a','#7c2d12'],['#fb923c','#431407']
+  ];
+
+  const state = {
+    dislikes:new Set(), avoids:new Set(), prices:new Set([1,2]),
+    wheel:[], pool:[], poolCount:0, rotation:0, spinning:false, winner:null, muted:false
+  };
+
+  /* ---------- 篩選 UI ---------- */
+  function chip(group, value, label, kind, checked){
+    return `<label><input type="checkbox" class="sr-only" data-group="${group}" value="${value}" ${checked?'checked':''}>` +
+           `<span class="chip ${kind}">${label}</span></label>`;
+  }
+  $('cuisineChips').innerHTML = CUISINES.map(c => chip('dislike', c, c, 'exclude', false)).join('');
+  $('avoidChips').innerHTML = AVOIDS.map(([a,e]) => chip('avoid', a, `${e} ${a}`, 'exclude', false)).join('')
+                            + chip('avoid', '素食', '🥬 只吃素食', 'veg', false);
+  $('priceChips').innerHTML = PRICES.map(([v,l,r]) => chip('price', v, `${l} (${r})`, 'include', v !== 3)).join('');
+
+  document.addEventListener('change', e => {
+    const t = e.target;
+    if (!t.matches('input[data-group]')) return;
+    const g = t.dataset.group;
+    const set = g === 'dislike' ? state.dislikes : g === 'avoid' ? state.avoids : state.prices;
+    const key = g === 'price' ? Number(t.value) : t.value;
+    t.checked ? set.add(key) : set.delete(key);
+    rebuild();
+  });
+
+  /* ---------- 學校 / 交通 ---------- */
+  const schoolSel = $('school'), customInput = $('customSchool');
+  const getSchool = () => schoolSel.value === '__custom' ? customInput.value.trim() : schoolSel.value;
+  schoolSel.addEventListener('change', () => {
+    const custom = schoolSel.value === '__custom';
+    customInput.classList.toggle('hidden', !custom);
+    if (custom) customInput.focus();
+    if (state.winner) updateMap();
+  });
+  customInput.addEventListener('input', () => { if (state.winner) updateMap(); });
+
+  /* ---------- 轉盤池 ---------- */
+  function inPool(d){
+    if (state.dislikes.has(d.c)) return false;
+    if (!d.p.some(p => state.prices.has(p))) return false;
+    for (const a of state.avoids){
+      if (a === '素食'){ if (!d.v) return false; }
+      else if (d.t.includes(a)) return false;
+    }
+    return true;
+  }
+  function shuffle(arr){
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--){ const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+    return a;
+  }
+  function rebuild(){
+    const pool = DISHES.filter(inPool);
+    state.poolCount = pool.length;
+    state.pool = pool;
+    state.wheel = shuffle(pool).slice(0, MAX_SEGMENTS);
+    state.winner = null;
+    hideResult();
+    const empty = pool.length === 0;
+    $('emptyNotice').classList.toggle('hidden', !empty);
+    $('shuffleBtn').classList.toggle('hidden', pool.length <= MAX_SEGMENTS);
+    $('poolInfo').textContent = empty
+      ? '目前沒有符合條件的料理。'
+      : `符合條件的料理共 ${pool.length} 道，每一道都有機會抽中` + (pool.length > MAX_SEGMENTS ? `（轉盤一次顯示 ${MAX_SEGMENTS} 道，轉動時會換出其他料理）。` : '。');
+    draw();
+  }
+  $('shuffleBtn').addEventListener('click', () => { if (!state.spinning) rebuild(); });
+
+  /* ---------- 繪製轉盤 ---------- */
+  const canvas = $('wheel'), ctx = canvas.getContext('2d'), wheelBox = $('wheelBox');
+  function draw(){
+    const size = wheelBox.clientWidth;
+    if (!size) return;
+    const dpr = window.devicePixelRatio || 1;
+    const px = Math.round(size * dpr);
+    if (canvas.width !== px){ canvas.width = px; canvas.height = px; }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    const cx = size / 2, cy = size / 2, R = size / 2 - 18, segR = R - 12;
+
+    // 外框
+    ctx.save();
+    ctx.shadowColor = 'rgba(194,65,12,.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6;
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fillStyle = '#c2410c'; ctx.fill();
+    ctx.restore();
+    for (let i = 0; i < 24; i++){
+      const a = i * TAU / 24;
+      ctx.beginPath(); ctx.arc(cx + Math.cos(a) * (R - 6), cy + Math.sin(a) * (R - 6), 3.2, 0, TAU);
+      ctx.fillStyle = i % 2 ? '#fff7ed' : '#fde68a'; ctx.fill();
+    }
+
+    const N = state.wheel.length;
+    const font = s => `700 ${s}px "Noto Sans TC","PingFang TC","Microsoft JhengHei",system-ui,sans-serif`;
+    if (!N){
+      ctx.beginPath(); ctx.arc(cx, cy, segR, 0, TAU); ctx.fillStyle = '#ffedd5'; ctx.fill();
+      ctx.fillStyle = '#c2410c'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.font = font(Math.max(16, size * 0.05)); ctx.fillText('條件太嚴格啦！', cx, cy - size * 0.2);
+      ctx.font = font(Math.max(13, size * 0.036)); ctx.fillText('請放寬條件再試試', cx, cy + size * 0.2);
+    } else {
+      const arc = TAU / N;
+      for (let i = 0; i < N; i++){
+        const a0 = state.rotation + i * arc;
+        let ci = i % PALETTE.length;
+        if (i === N - 1 && N > 1 && ci === 0) ci = 3;
+        const [bg, fg] = PALETTE[ci];
+        ctx.beginPath(); ctx.moveTo(cx, cy); ctx.arc(cx, cy, segR, a0, a0 + arc); ctx.closePath();
+        ctx.fillStyle = bg; ctx.fill();
+        ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.stroke();
+
+        const d = state.wheel[i];
+        ctx.save();
+        ctx.translate(cx, cy); ctx.rotate(a0 + arc / 2);
+        ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+        let fs = Math.max(12, Math.min(19, size * 0.046));
+        const label = `${d.n} ${d.e}`;
+        const maxW = segR - 16 - 46;
+        ctx.font = font(fs);
+        while (ctx.measureText(label).width > maxW && fs > 10){ fs--; ctx.font = font(fs); }
+        ctx.fillStyle = fg;
+        if (fg === '#fff'){ ctx.shadowColor = 'rgba(0,0,0,.35)'; ctx.shadowBlur = 3; }
+        ctx.fillText(label, segR - 16, 0);
+        ctx.restore();
+      }
+    }
+
+    // 中心圓
+    const g = ctx.createRadialGradient(cx - 8, cy - 8, 4, cx, cy, 38);
+    g.addColorStop(0, '#fff7ed'); g.addColorStop(1, '#fdba74');
+    ctx.beginPath(); ctx.arc(cx, cy, 36, 0, TAU); ctx.fillStyle = g; ctx.fill();
+    ctx.lineWidth = 5; ctx.strokeStyle = '#fff'; ctx.stroke();
+    ctx.font = '28px system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#9a3412'; ctx.fillText('🍴', cx, cy + 2);
+  }
+  window.addEventListener('resize', draw);
+  if ('ResizeObserver' in window) new ResizeObserver(draw).observe(wheelBox);
+
+  /* ---------- 音效（Web Audio 合成） ---------- */
+  let ac = null;
+  function audio(){
+    if (!ac){ try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ ac = null; } }
+    if (ac && ac.state === 'suspended') ac.resume();
+    return ac;
+  }
+  function tone(freq, start, dur, type = 'sine', vol = .15){
+    if (state.muted) return;
+    const a = audio(); if (!a) return;
+    const o = a.createOscillator(), g = a.createGain(), t0 = a.currentTime + start;
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(vol, t0 + .01);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+    o.connect(g); g.connect(a.destination);
+    o.start(t0); o.stop(t0 + dur + .02);
+  }
+  const tick = () => tone(850 + Math.random() * 250, 0, .05, 'triangle', .08);
+  const startSound = () => { tone(300, 0, .15, 'sawtooth', .07); tone(450, .08, .18, 'sawtooth', .07); };
+  const winSound = () => [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, i * .12, .38, 'triangle', .18));
+  $('muteBtn').addEventListener('click', e => {
+    state.muted = !state.muted;
+    e.currentTarget.setAttribute('aria-pressed', String(state.muted));
+    e.currentTarget.textContent = state.muted ? '🔇 靜音' : '🔊 音效';
+  });
+
+  /* ---------- 彩帶 ---------- */
+  const cv = $('confetti'), cc = cv.getContext('2d');
+  let parts = [], raf = null;
+  function sizeConfetti(){
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = innerWidth * dpr; cv.height = innerHeight * dpr;
+    cc.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  sizeConfetti(); window.addEventListener('resize', sizeConfetti);
+  function burst(n = 150){
+    if (reduceMotion) n = 40;
+    const colors = ['#f97316','#f43f5e','#fbbf24','#fb7185','#fde68a','#ef4444','#34d399'];
+    for (let i = 0; i < n; i++){
+      parts.push({
+        x: innerWidth / 2 + rand(-90, 90), y: innerHeight * 0.38,
+        vx: rand(-9, 9), vy: rand(-16, -5), w: rand(6, 11), h: rand(8, 16),
+        r: rand(0, TAU), vr: rand(-.3, .3), c: colors[Math.floor(Math.random() * colors.length)],
+        life: 0, max: rand(110, 170)
+      });
+    }
+    if (!raf) raf = requestAnimationFrame(confettiLoop);
+  }
+  function confettiLoop(){
+    cc.clearRect(0, 0, innerWidth, innerHeight);
+    parts = parts.filter(p => p.life < p.max && p.y < innerHeight + 30);
+    for (const p of parts){
+      p.life++; p.vy += .35; p.vx *= .99; p.x += p.vx; p.y += p.vy; p.r += p.vr;
+      cc.save();
+      cc.globalAlpha = 1 - Math.pow(p.life / p.max, 3);
+      cc.translate(p.x, p.y); cc.rotate(p.r); cc.fillStyle = p.c;
+      cc.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
+      cc.restore();
+    }
+    if (parts.length) raf = requestAnimationFrame(confettiLoop);
+    else { raf = null; cc.clearRect(0, 0, innerWidth, innerHeight); }
+  }
+
+  /* ---------- 旋轉 ---------- */
+  const pointer = $('pointer');
+  function wiggle(){
+    if (!pointer.animate) return;
+    pointer.animate(
+      [{transform:'translateX(-50%) rotate(-20deg)'},{transform:'translateX(-50%) rotate(0deg)'}],
+      {duration:120, easing:'ease-out'}
+    );
+  }
+  function setControls(disabled){
+    document.querySelectorAll('input[data-group], #school, #customSchool, #shuffleBtn, #againBtn, #acceptBtn')
+      .forEach(el => { el.disabled = disabled; });
+    const b = $('spinBtn');
+    b.disabled = disabled;
+    b.textContent = disabled ? '🌀 命運轉動中…' : '🎯 開始轉動命運！';
+  }
+  function spin(){
+    if (state.spinning) return;
+    audio();
+    if (!state.wheel.length){ openModal(); return; }
+    state.spinning = true; setControls(true); hideResult(); startSound();
+
+    const N = state.wheel.length, arc = TAU / N;
+    // 從「全部符合條件的料理」抽出命定美食，不限於目前轉盤上顯示的那幾道
+    const pool = state.pool;
+    const winner = pool[Math.floor(Math.random() * pool.length)];
+    let target = state.wheel.indexOf(winner);
+    if (target === -1){
+      target = Math.floor(Math.random() * N);
+      state.wheel[target] = winner;
+    }
+    const jitter = (Math.random() - .5) * .7;
+    const needed = mod(-Math.PI / 2 - (target + .5 + jitter) * arc, TAU);
+    const extra = reduceMotion ? 2 : 6 + Math.floor(Math.random() * 3);
+    const delta = mod(needed - mod(state.rotation, TAU), TAU) + TAU * extra;
+    const start = state.rotation, dur = reduceMotion ? 1500 : 5200;
+    let t0 = null, lastIdx = -1;
+
+    function frame(ts){
+      if (t0 === null) t0 = ts;
+      const p = Math.min((ts - t0) / dur, 1);
+      const eased = 1 - Math.pow(1 - p, 4);
+      state.rotation = start + delta * eased;
+      draw();
+      const idx = Math.floor(mod(-Math.PI / 2 - state.rotation, TAU) / arc) % N;
+      if (idx !== lastIdx){
+        if (lastIdx !== -1){ tick(); wiggle(); }
+        lastIdx = idx;
+        // 轉動前段：把轉盤另一側的格子換成池中其他料理，讓轉盤持續出現新選項
+        if (p < 0.55 && pool.length > N){
+          const opp = (idx + Math.floor(N / 2)) % N;
+          if (opp !== target){
+            const used = new Set(state.wheel);
+            const cand = pool.filter(d => !used.has(d));
+            if (cand.length) state.wheel[opp] = cand[Math.floor(Math.random() * cand.length)];
+          }
+        }
+      }
+      if (p < 1) requestAnimationFrame(frame); else finish(target);
+    }
+    requestAnimationFrame(frame);
+  }
+  function finish(i){
+    state.spinning = false;
+    state.rotation = mod(state.rotation, TAU);
+    setControls(false);
+    state.winner = state.wheel[i];
+    showResult();
+    winSound(); burst();
+  }
+  $('spinBtn').addEventListener('click', spin);
+  $('againBtn').addEventListener('click', spin);
+
+  /* ---------- 結果與地圖 ---------- */
+  function hideResult(){
+    $('result').classList.add('hidden');
+    $('acceptNote').classList.add('hidden');
+    $('acceptBtn').textContent = '✅ 接受命運';
+  }
+  function showResult(){
+    const d = state.winner;
+    $('resultEmoji').textContent = d.e;
+    $('resultEmoji').classList.remove('hop'); void $('resultEmoji').offsetWidth; $('resultEmoji').classList.add('hop');
+    $('resultName').textContent = d.n;
+    const tags = [d.c, ...d.p.map(p => PRICE_LABEL[p]), ...d.t, ...(d.v ? ['素食'] : [])];
+    $('resultTags').innerHTML = tags.map(t => `<span class="rounded-full bg-orange-100 text-orange-700 text-sm font-semibold px-3 py-1">#${t}</span>`).join('');
+    const box = $('resultCard');
+    box.classList.remove('pop'); void box.offsetWidth; box.classList.add('pop');
+    $('result').classList.remove('hidden');
+    updateMap();
+    setTimeout(() => $('result').scrollIntoView({behavior: reduceMotion ? 'auto' : 'smooth', block:'start'}), 250);
+  }
+  function updateMap(){
+    const d = state.winner; if (!d) return;
+    const school = getSchool();
+    const pos = SCHOOL_POS[school];
+    if (pos){
+      // 已知學校：直接用座標固定地圖中心，搜尋結果會落在校園周邊
+      const [lat, lng] = pos;
+      $('mapFrame').src = `https://maps.google.com/maps?q=${encodeURIComponent(d.n)}&ll=${lat},${lng}&sll=${lat},${lng}&z=16&t=&ie=UTF8&iwloc=&output=embed`;
+      $('mapLink').href = `https://www.google.com/maps/search/${encodeURIComponent(d.n)}/@${lat},${lng},16z`;
+      $('mapHint').textContent = `📍 以「${school}」為中心搜尋`;
+    } else {
+      // 自行輸入的學校：沒有座標，改用文字搜尋
+      const query = school ? `${school} ${d.n}` : d.n;
+      $('mapFrame').src = `https://maps.google.com/maps?q=${encodeURIComponent(query)}&t=&z=15&ie=UTF8&iwloc=&output=embed`;
+      $('mapLink').href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+      $('mapHint').textContent = school ? `📍 以「${school}」文字搜尋` : '尚未輸入學校，目前為一般搜尋';
+    }
+  }
+  $('acceptBtn').addEventListener('click', () => {
+    if (!state.winner) return;
+    const note = $('acceptNote');
+    note.textContent = `命運已定！出發去吃「${state.winner.n}」吧 🎉`;
+    note.classList.remove('hidden');
+    $('acceptBtn').textContent = '✅ 命運已接受';
+    burst(110); winSound();
+    $('mapWrap').scrollIntoView({behavior: reduceMotion ? 'auto' : 'smooth', block:'center'});
+  });
+
+  /* ---------- 友善提示 Modal ---------- */
+  const modal = $('modal');
+  function openModal(){ modal.classList.remove('hidden'); $('modalClose').focus(); }
+  function closeModal(){ modal.classList.add('hidden'); }
+  $('modalClose').addEventListener('click', closeModal);
+  modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
+
+  /* ---------- 啟動 ---------- */
+  rebuild();
+})();
+</script>
+</body>
+</html>
